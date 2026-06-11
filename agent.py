@@ -92,9 +92,72 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
+    import re
+
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    query_lower = query.lower()
+
+    # Extract max price like "$30", "under $30", "under 30"
+    price_match = re.search(r"(?:under|below|less than)?\s*\$?(\d+(?:\.\d+)?)", query_lower)
+    max_price = float(price_match.group(1)) if price_match else None
+
+    # Extract size like "size M", "size medium", etc.
+    size = None
+    size_match = re.search(r"size\s+([a-z0-9/]+)", query_lower)
+    if size_match:
+        raw_size = size_match.group(1).upper()
+        size_map = {
+            "SMALL": "S",
+            "MEDIUM": "M",
+            "LARGE": "L",
+        }
+        size = size_map.get(raw_size, raw_size)
+
+    # Clean description by removing price and size words
+    description = query_lower
+    description = re.sub(r"under\s+\$?\d+(?:\.\d+)?", "", description)
+    description = re.sub(r"below\s+\$?\d+(?:\.\d+)?", "", description)
+    description = re.sub(r"less than\s+\$?\d+(?:\.\d+)?", "", description)
+    description = re.sub(r"size\s+[a-z0-9/]+", "", description)
+    description = description.replace("looking for", "")
+    description = description.replace("i'm", "")
+    description = description.replace("im", "")
+    description = description.replace("a ", " ")
+    description = description.strip(" ,.")
+
+    session["parsed"] = {
+        "description": description,
+        "size": size,
+        "max_price": max_price,
+    }
+
+    results = search_listings(description, size=size, max_price=max_price)
+    session["search_results"] = results
+
+    if not results:
+        session["error"] = (
+            "I couldn't find any listings that match your description, size, and price. "
+            "Try increasing your budget, removing the size filter, or using a broader description."
+        )
+        return session
+
+    selected_item = results[0]
+    session["selected_item"] = selected_item
+
+    outfit = suggest_outfit(selected_item, wardrobe)
+    session["outfit_suggestion"] = outfit
+
+    if not outfit or not outfit.strip():
+        session["error"] = (
+            "I found a listing, but I couldn't generate an outfit suggestion. "
+            "Try again with more wardrobe details."
+        )
+        return session
+
+    fit_card = create_fit_card(outfit, selected_item)
+    session["fit_card"] = fit_card
+
     return session
 
 
